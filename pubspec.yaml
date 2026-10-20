@@ -1,0 +1,30 @@
+name: story_dock
+description: A stories tray that collapses into a floating glass dock as the feed scrolls. Capsule and stack styles, RTL, keyboard and screen reader ready.
+version: 1.0.0
+homepage: https://github.com/YagnikBarasiya23/story_dock
+repository: https://github.com/YagnikBarasiya23/story_dock
+issue_tracker: https://github.com/YagnikBarasiya23/story_dock/issues
+topics:
+  - stories
+  - animation
+  - widget
+  - navigation
+  - scroll
+screenshots:
+  - description: The stories tray flying into the capsule dock, then the stack dock.
+    path: doc/demo.gif
+  - description: Open tray, capsule dock and stack dock.
+    path: doc/screenshot.png
+
+environment:
+  sdk: ^3.8.0
+  flutter: ">=3.32.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
