@@ -29,10 +29,11 @@ class StoryDockStyle {
     this.trayAvatarSize = 68,
     this.trayItemExtent = 80,
     this.dockAvatarSize = 28,
-    this.expandedDockAvatarSize = 40,
+    this.expandedDockAvatarSize = 46,
     this.dockMargin = 16,
     this.barHeight = 52,
     this.barScrim = true,
+    this.actionGlass = true,
   }) : assert(trayAvatarSize > 0),
        assert(trayItemExtent >= trayAvatarSize),
        assert(dockAvatarSize > 0),
@@ -54,7 +55,7 @@ class StoryDockStyle {
   /// Fill of the glass dock. Defaults to the surface colour at 55%.
   final Color? glassTint;
 
-  /// Hairline edge of the glass dock.
+  /// Hairline edge of the glass dock. None by default (borderless).
   final Color? glassBorderColor;
 
   /// Backdrop blur of the glass dock. 0 turns the blur off.
@@ -75,10 +76,12 @@ class StoryDockStyle {
   /// Outer diameter of a docked avatar (the capsule at rest, or the stack).
   final double dockAvatarSize;
 
-  /// Outer diameter of an avatar in the enlarged capsule.
+  /// Outer diameter of an avatar in the enlarged capsule. The whole capsule
+  /// scales by `expandedDockAvatarSize / dockAvatarSize` when it grows.
   final double expandedDockAvatarSize;
 
-  /// Space between the enlarged capsule and the screen edges.
+  /// The smallest gap between the enlarged capsule and the screen edges.
+  /// On narrow screens the capsule grows less to keep it.
   final double dockMargin;
 
   /// Height of the top bar that holds the leading, title, trailing and dock.
@@ -87,6 +90,10 @@ class StoryDockStyle {
   /// Whether a soft fade is drawn behind the top bar once content scrolls
   /// under it.
   final bool barScrim;
+
+  /// Whether the leading and trailing widgets sit in small glass circles
+  /// while the capsule dock shows.
+  final bool actionGlass;
 
   /// Returns a copy with the given fields replaced.
   StoryDockStyle copyWith({
@@ -105,6 +112,7 @@ class StoryDockStyle {
     double? dockMargin,
     double? barHeight,
     bool? barScrim,
+    bool? actionGlass,
   }) {
     return StoryDockStyle(
       ringColor: ringColor ?? this.ringColor,
@@ -123,6 +131,7 @@ class StoryDockStyle {
       dockMargin: dockMargin ?? this.dockMargin,
       barHeight: barHeight ?? this.barHeight,
       barScrim: barScrim ?? this.barScrim,
+      actionGlass: actionGlass ?? this.actionGlass,
     );
   }
 
@@ -143,7 +152,8 @@ class StoryDockStyle {
       other.expandedDockAvatarSize == expandedDockAvatarSize &&
       other.dockMargin == dockMargin &&
       other.barHeight == barHeight &&
-      other.barScrim == barScrim;
+      other.barScrim == barScrim &&
+      other.actionGlass == actionGlass;
 
   @override
   int get hashCode => Object.hash(
@@ -162,5 +172,6 @@ class StoryDockStyle {
     dockMargin,
     barHeight,
     barScrim,
+    actionGlass,
   );
 }

@@ -718,6 +718,16 @@ void main() {
     Finder strip(int i) => find.byKey(ValueKey<String>('story_dock_strip_$i'));
     final stripList = find.byKey(const ValueKey<String>('story_dock_strip'));
 
+    // Faces are laid out at 40 px and scaled; measure what is on screen.
+    double faceWidth(WidgetTester tester, Finder face) =>
+        tester.getRect(face).width;
+    // The enlarged capsule: 46 px faces in 64.4 px slots (gap 0.4 of a
+    // face) with 8.28 px insets. The compact one is the same, scaled 28/46.
+    const unit = 46 * 1.4;
+    const inset = 46 * 0.18;
+    double expandedWidth(int n) => n * unit + 2 * inset;
+    double compactWidth(int n) => expandedWidth(n) * 28 / 46;
+
     Future<void> showCapsule(WidgetTester tester) async {
       await dockIt(tester);
       await settle(tester, const Duration(milliseconds: 300));
@@ -767,9 +777,9 @@ void main() {
       // Compact: the first four faces, 28 px each.
       for (var i = 0; i < 4; i++) {
         expect(strip(i), findsOneWidget);
-        expect(tester.getSize(strip(i)).width, closeTo(28, 0.1));
+        expect(faceWidth(tester, strip(i)), closeTo(28, 0.1));
       }
-      expect(tester.getSize(dock).width, closeTo(4 * 34 + 6, 0.5));
+      expect(tester.getSize(dock).width, closeTo(compactWidth(4), 0.5));
     });
 
     testWidgets('never rotates on its own', (tester) async {
@@ -804,9 +814,11 @@ void main() {
       expect(controller.isDockExpanded, isTrue);
       expect(opened, isNull, reason: 'the first touch only enlarges');
       final big = tester.getSize(dock);
-      expect(big.width, 400 - 2 * 16);
-      expect(big.height, greaterThan(small.height));
-      expect(tester.getSize(strip(0)).width, closeTo(40, 0.1));
+      // A uniform scale of the compact capsule: still four faces wide.
+      expect(big.width, closeTo(expandedWidth(4), 0.5));
+      expect(big.width / small.width, closeTo(46 / 28, 0.01));
+      expect(big.height / small.height, closeTo(46 / 28, 0.01));
+      expect(faceWidth(tester, strip(0)), closeTo(46, 0.1));
       expect(opacityAbove(tester, find.text('lead')), 0);
       expect(opacityAbove(tester, find.text('trail')), 0);
 
@@ -817,6 +829,163 @@ void main() {
       expect(strip(8), findsOneWidget);
       await tester.tap(strip(8));
       expect(opened, 8);
+    });
+
+    testWidgets('a drag on the compact capsule scrolls at once and grows', (
+      tester,
+    ) async {
+      final controller = StoryDockController();
+      await pumpDock(
+        tester,
+        variant: capsule,
+        controller: controller,
+        stories: people(12),
+      );
+      await showCapsule(tester);
+      final before = tester.getRect(strip(3)).left;
+      final gesture = await tester.startGesture(tester.getCenter(dock));
+      await gesture.moveBy(const Offset(-30, 0)); // past touch slop
+      await tester.pump();
+      await gesture.moveBy(const Offset(-20, 0));
+      await tester.pump();
+      // Growing has started and the faces already follow the finger.
+      expect(controller.isDockExpanded, isTrue);
+      final duringDrag = tester.getRect(strip(3)).left;
+      expect(duringDrag, lessThan(before));
+      // The same drag keeps scrolling while the capsule grows.
+      for (var i = 0; i < 12; i++) {
+        await gesture.moveBy(const Offset(-10, 0));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      expect(tester.getRect(strip(3)).left, lessThan(duringDrag - 60));
+      await gesture.up();
+      await settle(tester, const Duration(milliseconds: 800));
+      expect(faceWidth(tester, strip(5)), closeTo(46, 0.1));
+      // It comes to rest on whole faces.
+      final offset = tester
+          .state<ScrollableState>(
+            find.descendant(of: stripList, matching: find.byType(Scrollable)),
+          )
+          .position
+          .pixels;
+      expect(offset % unit, anyOf(closeTo(0, 0.5), closeTo(unit, 0.5)));
+    });
+
+    testWidgets('borderless glass, with glass circles behind the actions', (
+      tester,
+    ) async {
+      await pumpDock(
+        tester,
+        variant: capsule,
+        leading: const Text('lead'),
+        trailing: const Text('trail'),
+      );
+      await showCapsule(tester);
+      final glass = tester.widget<DecoratedBox>(
+        find.descendant(of: dock, matching: find.byType(DecoratedBox)).first,
+      );
+      expect((glass.decoration as BoxDecoration).border, isNull);
+      // Capsule plus one circle behind each action.
+      expect(find.byType(BackdropFilter), findsNWidgets(3));
+      expect(find.byType(BackdropGroup), findsOneWidget);
+
+      await pumpDock(
+        tester,
+        variant: capsule,
+        leading: const Text('lead'),
+        trailing: const Text('trail'),
+        style: const StoryDockStyle(
+          actionGlass: false,
+          glassBorderColor: Colors.white,
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(BackdropFilter), findsOneWidget);
+      final bordered = tester.widget<DecoratedBox>(
+        find.descendant(of: dock, matching: find.byType(DecoratedBox)).first,
+      );
+      expect((bordered.decoration as BoxDecoration).border, isNotNull);
+    });
+
+    testWidgets('drops in from above with the actions, within the safe area', (
+      tester,
+    ) async {
+      final feed = ScrollController();
+      addTearDown(feed.dispose);
+      tester.view.physicalSize = const Size(400, 700);
+      tester.view.devicePixelRatio = 1;
+      tester.view.padding = const FakeViewPadding(top: 47);
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StoryDock(
+              stories: people(8),
+              leading: const Text('lead'),
+              builder: (context, tray) => ListView(
+                controller: feed,
+                children: <Widget>[tray, const SizedBox(height: 3000)],
+              ),
+            ),
+          ),
+        ),
+      );
+      // The tray starts below the status bar and the bar.
+      expect(
+        tester
+            .getTopLeft(find.byKey(const ValueKey<String>('story_dock_tray_0')))
+            .dy,
+        47 + 52,
+      );
+      feed.jumpTo(400);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      final early = tester.getCenter(dock).dy;
+      final leadEarly = tester.getCenter(find.text('lead')).dy;
+      await settle(tester, const Duration(milliseconds: 300));
+      final settled = tester.getCenter(dock).dy;
+      expect(settled, closeTo(47 + 26, 0.5), reason: 'centred in the bar');
+      expect(early, lessThan(settled), reason: 'slides down into place');
+      expect(
+        tester.getCenter(find.text('lead')).dy - leadEarly,
+        closeTo(settled - early, 1),
+        reason: 'the actions move with the capsule',
+      );
+    });
+
+    testWidgets('scrolling the feed while docked does not rebuild the bar', (
+      tester,
+    ) async {
+      final feed = ScrollController();
+      addTearDown(feed.dispose);
+      var builds = 0;
+      await pumpDock(
+        tester,
+        variant: capsule,
+        feedController: feed,
+        title: Builder(
+          builder: (context) {
+            builds++;
+            return const Text('title');
+          },
+        ),
+      );
+      final atRest = builds;
+      feed.jumpTo(30);
+      await tester.pump();
+      expect(builds, greaterThan(atRest), reason: 'the header still moves');
+      feed.jumpTo(400);
+      await settle(tester, const Duration(milliseconds: 300));
+      final docked = tester.widget<ListView>(stripList);
+      for (var y = 410.0; y < 900; y += 30) {
+        feed.jumpTo(y);
+        await tester.pump();
+      }
+      expect(
+        identical(tester.widget<ListView>(stripList), docked),
+        isTrue,
+        reason: 'the overlay was not rebuilt',
+      );
     });
 
     testWidgets('stays enlarged while the feed scrolls, shrinks at the tray', (
@@ -836,7 +1005,7 @@ void main() {
       expect(controller.isDockExpanded, isFalse);
       expect(dock, findsNothing);
       await showCapsule(tester);
-      expect(tester.getSize(dock).width, closeTo(4 * 34 + 6, 0.5));
+      expect(tester.getSize(dock).width, closeTo(compactWidth(4), 0.5));
     });
 
     testWidgets('shrinks around the faces the user scrolled to', (
@@ -851,13 +1020,17 @@ void main() {
       );
       await showCapsule(tester);
       await touchDock(tester);
-      await tester.drag(dock, const Offset(-208, 0)); // 4 faces of 52 px
+      await tester.drag(dock, const Offset(-4 * unit, 0)); // four faces
       await settle(tester);
       controller.collapseDock();
       await settle(tester, const Duration(milliseconds: 400));
       expect(controller.isDockExpanded, isFalse);
       final left = tester.getRect(dock).left;
-      expect(tester.getRect(strip(4)).left, closeTo(left + 6, 1));
+      // Inset plus the face's centring in its slot, at the compact scale.
+      expect(
+        tester.getRect(strip(4)).left,
+        closeTo(left + (inset + (unit - 46) / 2) * 28 / 46, 1),
+      );
     });
 
     testWidgets('collapseAfter shrinks it after the last touch', (
@@ -952,15 +1125,16 @@ void main() {
       tester,
     ) async {
       final handle = tester.ensureSemantics();
-      await pumpDock(tester, variant: capsule, stories: people(6, seenFrom: 4));
+      await pumpDock(tester, variant: capsule, stories: people(6, seenFrom: 2));
       await showCapsule(tester);
       expect(
-        find.bySemanticsLabel('Stories, 6 accounts, 4 new'),
+        find.bySemanticsLabel('Stories, 6 accounts, 2 new'),
         findsOneWidget,
       );
       await touchDock(tester);
-      expect(find.bySemanticsLabel('Stories, 6 accounts, 4 new'), findsNothing);
-      expect(find.bySemanticsLabel("User 5's story, seen"), findsWidgets);
+      expect(find.bySemanticsLabel('Stories, 6 accounts, 2 new'), findsNothing);
+      expect(find.bySemanticsLabel("User 1's story, new"), findsWidgets);
+      expect(find.bySemanticsLabel("User 2's story, seen"), findsWidgets);
       handle.dispose();
     });
 
@@ -968,10 +1142,10 @@ void main() {
       for (final n in <int>[1, 3]) {
         await pumpDock(tester, variant: capsule, stories: people(n));
         await showCapsule(tester);
-        expect(tester.getSize(dock).width, closeTo(n * 34 + 6, 0.5));
+        expect(tester.getSize(dock).width, closeTo(compactWidth(n), 0.5));
         await touchDock(tester);
         // Only as wide as its faces, not the whole bar.
-        expect(tester.getSize(dock).width, closeTo(n * 52 + 16, 0.5));
+        expect(tester.getSize(dock).width, closeTo(expandedWidth(n), 0.5));
         await tester.drag(find.byKey(feedKey), const Offset(0, 3000));
         await settle(tester);
       }
@@ -1008,10 +1182,13 @@ void main() {
         ),
       );
       await showCapsule(tester);
-      expect(tester.getSize(strip(0)).width, closeTo(24, 0.1));
+      expect(faceWidth(tester, strip(0)), closeTo(24, 0.1));
       await touchDock(tester);
-      expect(tester.getSize(strip(0)).width, closeTo(36, 0.1));
-      expect(tester.getSize(dock).width, 400 - 2 * (10 + 44));
+      expect(faceWidth(tester, strip(0)), closeTo(36, 0.1));
+      expect(
+        tester.getSize(dock).width,
+        closeTo(4 * 36 * 1.4 + 2 * 36 * 0.18, 0.5),
+      );
       expect(opacityAbove(tester, find.text('lead')), 1);
     });
 
@@ -1030,7 +1207,7 @@ void main() {
       expect(opacityAbove(tester, strip(0)), 1);
       await tester.tap(dock);
       await tester.pump();
-      expect(tester.getSize(strip(0)).width, closeTo(40, 0.1));
+      expect(faceWidth(tester, strip(0)), closeTo(46, 0.1));
     });
 
     testWidgets('switching variant at runtime', (tester) async {
@@ -1043,7 +1220,7 @@ void main() {
       expect(slot(0), findsOneWidget);
       await pumpDock(tester, variant: capsule);
       await tester.pump();
-      expect(tester.getSize(dock).width, closeTo(4 * 34 + 6, 0.5));
+      expect(tester.getSize(dock).width, closeTo(compactWidth(4), 0.5));
     });
 
     testWidgets('dispose while enlarging', (tester) async {
@@ -1084,7 +1261,9 @@ void main() {
           );
           await expectLater(
             find.byType(StoryDock),
-            matchesGoldenFile('goldens/open_${brightness.name}.png'),
+            matchesGoldenFile(
+              'goldens/${variant.name}_open_${brightness.name}.png',
+            ),
           );
           feed.jumpTo(45);
           await tester.pump();

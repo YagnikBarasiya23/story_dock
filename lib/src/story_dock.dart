@@ -19,10 +19,13 @@ const double _trayPadSide = 6;
 const double _labelGap = 6;
 const double _dockPad = 6;
 const double _arcHeight = 14;
-const double _gapCompact = 6;
-const double _gapExpanded = 12;
-const double _capsuleInset = 3;
-const double _capsuleInsetExpanded = 8;
+// Proportions of the enlarged capsule, relative to its face size, measured
+// from the reference: gaps of 0.4 faces, insets of 0.18, and 0.3 above and
+// below the faces.
+const double _gapRatio = 0.4;
+const double _insetRatio = 0.18;
+const double _padRatio = 0.3;
+const double _revealDrop = 24;
 const Duration _scrollDuration = Duration(milliseconds: 320);
 
 const List<Color> _fallbackColors = <Color>[
@@ -141,26 +144,28 @@ class StoryDock extends StatefulWidget {
 
 class _StoryDockState extends State<StoryDock>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-  final ValueNotifier<double> _pixels = ValueNotifier<double>(0);
+  // Raw scroll offset, updated on every scroll frame.
+  double _pixels = 0;
+  // The scroll offset clamped to the range the overlay depends on. Once the
+  // tray and bar have scrolled away it stops changing, so scrolling the feed
+  // no longer rebuilds the overlay.
+  final ValueNotifier<double> _view = ValueNotifier<double>(0);
+  double _viewLimit = 0;
   final ValueNotifier<int> _base = ValueNotifier<int>(0);
   late final ScrollController _trayScroll = ScrollController()
     ..addListener(_onTrayScroll);
   late final AnimationController _rotation;
   late final AnimationController _reveal = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 220),
+    duration: const Duration(milliseconds: 200),
   );
-  late final AnimationController _expand =
-      AnimationController(
-          vsync: this,
-          duration: const Duration(milliseconds: 300),
-          reverseDuration: const Duration(milliseconds: 240),
-        )
-        ..addListener(_alignStrip)
-        ..addStatusListener(_onExpandStatus);
+  late final AnimationController _expand = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+    reverseDuration: const Duration(milliseconds: 220),
+  )..addStatusListener(_onExpandStatus);
   late final _StripController _strip = _StripController(_stripOffsetFor);
   Timer? _collapseTimer;
-  double _width = 0;
 
   ScrollPosition? _position;
   double _trayOffset = 0;
@@ -174,7 +179,7 @@ class _StoryDockState extends State<StoryDock>
   int get _count => widget.stories.length;
   int get _slots => math.min(widget.dockCount, _count);
   double get _progress =>
-      _trayExtent <= 0 ? 0 : _clamp01(_pixels.value / _trayExtent);
+      _trayExtent <= 0 ? 0 : _clamp01(_pixels / _trayExtent);
   bool get _docked => _progress >= 1;
   bool get _isCapsule => widget.variant == StoryDockVariant.capsule;
 
@@ -188,7 +193,6 @@ class _StoryDockState extends State<StoryDock>
     _appActive = _isVisible(WidgetsBinding.instance.lifecycleState);
     _rotation = AnimationController(vsync: this, duration: widget.rotateEvery)
       ..addStatusListener(_onRotationStatus);
-    _pixels.addListener(_onPixels);
     widget.controller?._attach(this);
   }
 
@@ -234,7 +238,7 @@ class _StoryDockState extends State<StoryDock>
     _expand.dispose();
     _strip.dispose();
     _trayScroll.dispose();
-    _pixels.dispose();
+    _view.dispose();
     _base.dispose();
     super.dispose();
   }
@@ -271,7 +275,11 @@ class _StoryDockState extends State<StoryDock>
     if (metrics == null || metrics.axis != Axis.vertical) return false;
     final scrollable = source == null ? null : Scrollable.maybeOf(source);
     if (scrollable != null) _position = scrollable.position;
-    _pixels.value = metrics.pixels;
+    if (metrics.pixels != _pixels) {
+      _pixels = metrics.pixels;
+      _view.value = _pixels.clamp(0.0, _viewLimit);
+      _onPixels();
+    }
     if (ended) _maybeSnap();
     return false;
   }
@@ -396,15 +404,28 @@ class _StoryDockState extends State<StoryDock>
     _collapseTimer?.cancel();
     if (_expand.status == AnimationStatus.dismissed) return;
     if (_expand.status == AnimationStatus.reverse && !instant) return;
-    // Shrink back around the faces the user scrolled to.
-    if (_strip.hasClients && _count > 0) {
-      final extent = _geometry(_width, _expand.value).extent;
-      _base.value = (_strip.offset / extent).round().clamp(0, _count - 1);
-    }
     if (instant || _reduceMotion) {
       _expand.value = 0;
     } else {
       _expand.reverse();
+    }
+    // Shrink back around the faces the user scrolled to, settling on a
+    // whole face so none is cut off at the edge.
+    if (_strip.hasClients && _count > 0 && !instant) {
+      final unit = _stripUnit;
+      final max = math.max(0, _count - _slots) * unit;
+      final target = ((_strip.offset / unit).round() * unit).clamp(0.0, max);
+      if ((target - _strip.offset).abs() > 0.5) {
+        if (_reduceMotion) {
+          _strip.jumpTo(target);
+        } else {
+          _strip.animateTo(
+            target,
+            duration: _expand.reverseDuration!,
+            curve: Curves.easeOutCubic,
+          );
+        }
+      }
     }
   }
 
@@ -415,9 +436,20 @@ class _StoryDockState extends State<StoryDock>
     _collapseTimer = Timer(after, collapseDock);
   }
 
-  void _onDockPointerDown() {
-    _collapseTimer?.cancel();
-    if (!_isDockExpanded) expandDock();
+  void _onDockPointerDown() => _collapseTimer?.cancel();
+
+  bool _onStripNotification(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    // Like the original: the compact capsule scrolls under the finger right
+    // away, and grows as soon as a drag starts.
+    if (notification is ScrollStartNotification &&
+        notification.dragDetails != null) {
+      expandDock();
+      _collapseTimer?.cancel();
+    } else if (notification is ScrollEndNotification) {
+      _scheduleCollapse();
+    }
+    return false;
   }
 
   void _onExpandStatus(AnimationStatus status) {
@@ -425,47 +457,42 @@ class _StoryDockState extends State<StoryDock>
     if (status == AnimationStatus.completed) _scheduleCollapse();
   }
 
+  // One face plus its gap, in the strip's own (unscaled) units.
+  double get _stripUnit =>
+      widget.style.expandedDockAvatarSize * (1 + _gapRatio);
+
+  double get _stripInset => widget.style.expandedDockAvatarSize * _insetRatio;
+
   double _stripOffsetFor() {
     if (_count == 0) return 0;
-    final g = _geometry(_width, _expand.value);
-    final max = math.max(0.0, _count * g.extent + 2 * g.inset - g.width);
-    return (_base.value * g.extent).clamp(0.0, max);
+    final max = math.max(0, _count - _slots) * _stripUnit;
+    return (_base.value * _stripUnit).clamp(0.0, max);
   }
 
-  // While the capsule grows or shrinks, keep the same faces at its start.
-  void _alignStrip() {
-    if (!_strip.hasClients) return;
-    if (_expand.status == AnimationStatus.completed) return;
-    final target = _stripOffsetFor();
-    if ((_strip.offset - target).abs() > 0.01) _strip.jumpTo(target);
-  }
-
+  // The capsule is one fixed layout: `dockCount` faces at the enlarged size.
+  // Compact and enlarged are the same capsule at two scales, so growing is a
+  // pure scale. Nothing is laid out again on each frame, and the scroll
+  // offset (and a drag in progress) carries straight through.
   _CapsuleGeometry _geometry(double width, double t) {
     final style = widget.style;
     final x = Curves.easeOutCubic.transform(_clamp01(t));
-    final n = _slots;
-    final cd = style.dockAvatarSize;
     final ed = style.expandedDockAvatarSize;
-    final d = ui.lerpDouble(cd, ed, x)!;
-    final extent = d + ui.lerpDouble(_gapCompact, _gapExpanded, x)!;
-    final compactW = n * (cd + _gapCompact) + 2 * _capsuleInset;
+    final fullW = _slots * _stripUnit + 2 * _stripInset;
+    final fullH = ed * (1 + 2 * _padRatio);
+    final compactScale = style.dockAvatarSize / ed;
     final side = widget.hideActionsWhenDocked
         ? style.dockMargin
         : style.dockMargin + 44;
-    final roomW = math.max(compactW, width - 2 * side);
-    final needW = _count * (ed + _gapExpanded) + 2 * _capsuleInsetExpanded;
-    final expandedW = math.max(compactW, math.min(roomW, needW));
-    final capW = ui.lerpDouble(compactW, expandedW, x)!;
-    final inset = math.max(
-      ui.lerpDouble(_capsuleInset, _capsuleInsetExpanded, x)!,
-      (capW - _count * extent) / 2,
-    );
+    // Never wider than the room the bar leaves.
+    final roomScale = (width - 2 * side) / fullW;
+    final maxScale = math.max(compactScale, math.min(1.0, roomScale));
+    final scale = ui.lerpDouble(compactScale, maxScale, x)!;
     return _CapsuleGeometry(
-      width: capW,
-      height: d + ui.lerpDouble(12, 16, x)!,
-      avatar: d,
-      extent: extent,
-      inset: inset,
+      width: fullW * scale,
+      height: fullH * scale,
+      viewWidth: fullW,
+      viewHeight: fullH,
+      scale: scale,
       progress: x,
     );
   }
@@ -545,6 +572,8 @@ class _StoryDockState extends State<StoryDock>
       painter.dispose();
     }
 
+    _viewLimit = math.max(math.max(_trayExtent, style.barHeight), 24);
+
     final tray = _buildTray(context, theme, labelStyle, labelScaler);
 
     return NotificationListener<Notification>(
@@ -565,16 +594,14 @@ class _StoryDockState extends State<StoryDock>
               Positioned.fill(
                 child: AnimatedBuilder(
                   animation: Listenable.merge(<Listenable>[
-                    _pixels,
+                    _view,
                     _base,
                     _rotation,
                     _reveal,
                     _expand,
                   ]),
-                  builder: (context, _) {
-                    _width = constraints.maxWidth;
-                    return _buildOverlay(context, theme, constraints.maxWidth);
-                  },
+                  builder: (context, _) =>
+                      _buildOverlay(context, theme, constraints.maxWidth),
                 ),
               ),
             ],
@@ -648,9 +675,13 @@ class _StoryDockState extends State<StoryDock>
         key: ValueKey<String>('story_dock_tray_$index'),
         onTap: tap,
         borderRadius: BorderRadius.circular(16),
-        child: AnimatedBuilder(
-          animation: Listenable.merge(<Listenable>[_pixels, _base]),
-          builder: (context, _) {
+        child: _TrayItemBuilder(
+          // The capsule's tray just scrolls away; only the stack's tray
+          // hides the faces that fly up, so only it listens to the scroll.
+          listenable: _isCapsule
+              ? null
+              : Listenable.merge(<Listenable>[_view, _base]),
+          builder: (context) {
             final p = _progress;
             final stack = !_isCapsule;
             final flying =
@@ -698,8 +729,8 @@ class _StoryDockState extends State<StoryDock>
     final mq = MediaQuery.of(context);
     final capsule = _isCapsule;
     final p = _progress;
-    final pixels = math.max(0.0, _pixels.value);
-    final reveal = capsule ? Curves.easeOut.transform(_reveal.value) : 0.0;
+    final pixels = _view.value;
+    final reveal = capsule ? Curves.easeOutCubic.transform(_reveal.value) : 0.0;
     final expanded = capsule
         ? Curves.easeOutCubic.transform(_expand.value)
         : 0.0;
@@ -768,12 +799,12 @@ class _StoryDockState extends State<StoryDock>
     final double actionsOpacity;
     final double actionsLift;
     if (capsule) {
-      // Leave with the header, come back with the capsule, and make room
+      // Leave with the header, drop back in with the capsule, and make room
       // while the capsule is enlarged.
       actionsOpacity =
           math.max(headerFade, reveal) *
           (widget.hideActionsWhenDocked ? 1 - expanded : 1);
-      actionsLift = headerLift * (1 - reveal);
+      actionsLift = reveal > 0 ? _revealDrop * (1 - reveal) : headerLift;
     } else {
       actionsOpacity = widget.hideActionsWhenDocked
           ? 1 - _clamp01((p - 0.55) / 0.3)
@@ -800,7 +831,25 @@ class _StoryDockState extends State<StoryDock>
               excluding: hidden,
               child: Opacity(
                 opacity: _clamp01(actionsOpacity),
-                child: Center(child: child),
+                child: capsule && style.actionGlass
+                    ? Stack(
+                        alignment: Alignment.center,
+                        children: <Widget>[
+                          // A glass circle behind the action while docked.
+                          Opacity(
+                            opacity: reveal,
+                            child: _Glass(
+                              style: style,
+                              theme: theme,
+                              height: style.dockAvatarSize + 12,
+                              width: style.dockAvatarSize + 12,
+                              child: const SizedBox.shrink(),
+                            ),
+                          ),
+                          child,
+                        ],
+                      )
+                    : Center(child: child),
               ),
             ),
           ),
@@ -813,7 +862,8 @@ class _StoryDockState extends State<StoryDock>
     } else {
       _addStackDock(children, context, theme, width);
     }
-    return Stack(children: children);
+    // One shared backdrop for every glass shape on screen.
+    return BackdropGroup(child: Stack(children: children));
   }
 
   String get _dockLabel {
@@ -837,27 +887,37 @@ class _StoryDockState extends State<StoryDock>
     final cx = width / 2;
     final cy = mq.padding.top + style.barHeight / 2;
 
-    final strip = ExcludeSemantics(
-      excluding: !open,
-      child: NotificationListener<ScrollEndNotification>(
-        onNotification: (_) {
-          _scheduleCollapse();
-          return false;
-        },
-        child: ListView.builder(
-          key: const ValueKey<String>('story_dock_strip'),
-          controller: _strip,
-          scrollDirection: Axis.horizontal,
-          physics: open ? null : const NeverScrollableScrollPhysics(),
-          padding: EdgeInsets.symmetric(horizontal: g.inset),
-          itemExtent: g.extent,
-          itemCount: _count,
-          itemBuilder: (context, index) =>
-              _buildStripItem(theme, index, g.avatar, open),
+    // The strip at its enlarged size, scaled to the capsule.
+    final viewW = g.viewWidth;
+    final viewH = g.viewHeight;
+    final unit = _stripUnit;
+    final inset = math.max(_stripInset, (viewW - _count * unit) / 2);
+    final strip = FittedBox(
+      fit: BoxFit.fill,
+      child: SizedBox(
+        width: viewW,
+        height: viewH,
+        child: NotificationListener<ScrollNotification>(
+          onNotification: _onStripNotification,
+          child: RepaintBoundary(
+            child: ListView.builder(
+              key: const ValueKey<String>('story_dock_strip'),
+              controller: _strip,
+              scrollDirection: Axis.horizontal,
+              physics: _FaceSnapPhysics(unit: unit),
+              padding: EdgeInsets.symmetric(horizontal: inset),
+              itemExtent: unit,
+              itemCount: _count,
+              itemBuilder: (context, index) =>
+                  _buildStripItem(theme, index, open),
+            ),
+          ),
         ),
       ),
     );
 
+    // The same widgets in both states, so the strip keeps its scroll
+    // position while the capsule grows. While compact, a tap enlarges it.
     final dock = CallbackShortcuts(
       bindings: <ShortcutActivator, VoidCallback>{
         const SingleActivator(LogicalKeyboardKey.escape): collapseDock,
@@ -873,33 +933,30 @@ class _StoryDockState extends State<StoryDock>
           height: g.height,
           child: Material(
             type: MaterialType.transparency,
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                strip,
-                if (!open)
-                  Semantics(
-                    button: true,
-                    label: _dockLabel,
-                    onTap: expandDock,
-                    excludeSemantics: true,
-                    child: InkWell(
-                      onTap: expandDock,
-                      canRequestFocus: interactive,
-                      customBorder: const StadiumBorder(),
-                    ),
-                  ),
-              ],
+            child: Semantics(
+              button: !open,
+              label: open ? null : _dockLabel,
+              onTap: open ? null : expandDock,
+              excludeSemantics: !open,
+              child: InkWell(
+                onTap: open ? null : expandDock,
+                canRequestFocus: interactive && !open,
+                customBorder: const StadiumBorder(),
+                child: ExcludeSemantics(excluding: !open, child: strip),
+              ),
             ),
           ),
         ),
       ),
     );
 
+    // Like the reference, the top edge stays put: the capsule grows down and
+    // out from the bar, never up into the status bar.
+    final compactH = _geometry(width, 0).height;
     children.add(
       Positioned(
         left: cx - g.width / 2,
-        top: cy - g.height / 2,
+        top: cy - compactH / 2,
         width: g.width,
         height: g.height,
         child: IgnorePointer(
@@ -909,11 +966,8 @@ class _StoryDockState extends State<StoryDock>
             child: Opacity(
               opacity: reveal,
               child: Transform.translate(
-                offset: Offset(0, -8 * (1 - reveal)),
-                child: Transform.scale(
-                  scale: 0.92 + 0.08 * reveal,
-                  child: dock,
-                ),
+                offset: Offset(0, -_revealDrop * (1 - reveal)),
+                child: dock,
               ),
             ),
           ),
@@ -922,8 +976,9 @@ class _StoryDockState extends State<StoryDock>
     );
   }
 
-  Widget _buildStripItem(ThemeData theme, int index, double size, bool open) {
+  Widget _buildStripItem(ThemeData theme, int index, bool open) {
     final item = widget.stories[index];
+    final size = widget.style.expandedDockAvatarSize;
     final avatar = SizedBox.square(
       key: ValueKey<String>('story_dock_strip_$index'),
       dimension: size,
@@ -1042,7 +1097,7 @@ class _StoryDockState extends State<StoryDock>
     );
 
     final avatarSize = style.trayAvatarSize;
-    final trayY = _topInset - _pixels.value + _trayPadTop + avatarSize / 2;
+    final trayY = _topInset - _view.value + _trayPadTop + avatarSize / 2;
     final stagger = n > 1 ? math.min(0.07, 0.21 / (n - 1)) : 0.0;
     final separator = style.separatorColor ?? theme.colorScheme.surface;
     final avatars = <Widget>[];
@@ -1149,18 +1204,81 @@ class _CapsuleGeometry {
   const _CapsuleGeometry({
     required this.width,
     required this.height,
-    required this.avatar,
-    required this.extent,
-    required this.inset,
+    required this.viewWidth,
+    required this.viewHeight,
+    required this.scale,
     required this.progress,
   });
 
   final double width;
   final double height;
-  final double avatar;
-  final double extent;
-  final double inset;
+  final double viewWidth;
+  final double viewHeight;
+  final double scale;
   final double progress;
+}
+
+/// Rebuilds [builder] when [listenable] changes, or builds once when it is
+/// null.
+class _TrayItemBuilder extends StatelessWidget {
+  const _TrayItemBuilder({required this.listenable, required this.builder});
+
+  final Listenable? listenable;
+  final WidgetBuilder builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final listenable = this.listenable;
+    if (listenable == null) return builder(context);
+    return ListenableBuilder(
+      listenable: listenable,
+      builder: (context, _) => builder(context),
+    );
+  }
+}
+
+/// Lets the strip scroll and fling freely, then settles on a whole face, so
+/// the capsule always comes to rest showing complete faces.
+class _FaceSnapPhysics extends ScrollPhysics {
+  const _FaceSnapPhysics({required this.unit, super.parent});
+
+  final double unit;
+
+  @override
+  _FaceSnapPhysics applyTo(ScrollPhysics? ancestor) =>
+      _FaceSnapPhysics(unit: unit, parent: buildParent(ancestor));
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    // Let the platform physics handle overscroll at either end.
+    if (position.outOfRange) {
+      return super.createBallisticSimulation(position, velocity);
+    }
+    final tolerance = toleranceFor(position);
+    final free = super.createBallisticSimulation(position, velocity);
+    final landing = free?.x(double.infinity) ?? position.pixels;
+    final target = ((landing / unit).round() * unit).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((target - position.pixels).abs() < tolerance.distance &&
+        velocity.abs() < tolerance.velocity) {
+      return null;
+    }
+    return ScrollSpringSimulation(
+      spring,
+      position.pixels,
+      target,
+      velocity,
+      tolerance: tolerance,
+    );
+  }
+
+  @override
+  bool get allowImplicitScrolling => false;
 }
 
 /// Starts the strip at the faces the capsule shows, every time it appears.
@@ -1180,11 +1298,13 @@ class _Glass extends StatelessWidget {
     required this.theme,
     required this.height,
     required this.child,
+    this.width,
   });
 
   final StoryDockStyle style;
   final ThemeData theme;
   final double height;
+  final double? width;
   final Widget child;
 
   @override
@@ -1192,17 +1312,18 @@ class _Glass extends StatelessWidget {
     final scheme = theme.colorScheme;
     final radius = BorderRadius.circular(height / 2);
     final tint = style.glassTint ?? scheme.surface.withValues(alpha: 0.55);
-    final border =
-        style.glassBorderColor ?? scheme.onSurface.withValues(alpha: 0.12);
+    final border = style.glassBorderColor;
     Widget body = DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: radius,
-        border: Border.all(color: border, width: 0.5),
+        border: border == null || border.a == 0
+            ? null
+            : Border.all(color: border, width: 0.5),
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: <Color>[
-            Color.alphaBlend(Colors.white.withValues(alpha: 0.10), tint),
+            Color.alphaBlend(Colors.white.withValues(alpha: 0.08), tint),
             tint,
           ],
         ),
@@ -1210,7 +1331,7 @@ class _Glass extends StatelessWidget {
       child: child,
     );
     if (style.blurSigma > 0) {
-      body = BackdropFilter(
+      body = BackdropFilter.grouped(
         filter: ui.ImageFilter.blur(
           sigmaX: style.blurSigma,
           sigmaY: style.blurSigma,
@@ -1218,7 +1339,10 @@ class _Glass extends StatelessWidget {
         child: body,
       );
     }
-    return ClipRRect(borderRadius: radius, child: body);
+    body = ClipRRect(borderRadius: radius, child: body);
+    return width == null
+        ? body
+        : SizedBox(width: width, height: height, child: body);
   }
 }
 

@@ -10,9 +10,11 @@ A stories tray for Flutter that turns into a floating glass dock as the feed scr
 </p>
 
 - **Two styles.**
-  - `capsule` (default): the tray scrolls away with the feed, then a compact glass capsule with four faces fades in between your leading and trailing buttons. It stays still until touched. A touch enlarges it to nearly the full bar width, the side buttons step aside, and the faces become a horizontal strip of every story.
+  - `capsule` (default): the tray scrolls away with the feed, then a borderless glass capsule with four faces drops into the top bar between your leading and trailing buttons (each in its own glass circle). It stays still until touched. Swipe it and it scrolls under your finger straight away while it scales up about 1.6×, still four faces wide; the side buttons step aside. It always comes to rest on whole faces.
   - `stack`: the faces fly from the tray into an overlapping stack with a `+N` count as you scroll, and the front face shuffles to the back every couple of seconds.
 - **Never moves your feed.** The dock is drawn on top, so the list doesn't jump.
+- **Cheap to run.** Once the tray has scrolled away, scrolling the feed doesn't rebuild the bar, and growing the capsule is a pure scale, so no face is laid out again per frame.
+- **Edge to edge.** The feed runs under the status bar; the bar and dock sit inside the top safe area.
 - **Works with any vertical scroll view.** No scroll controller to wire up.
 - **Accessible.** RTL, keyboard, screen reader labels, reduced motion and text scaling.
 
@@ -24,7 +26,7 @@ flutter pub add story_dock
 
 ## Usage
 
-Put the `tray` widget first in your scroll view:
+Put the `tray` widget first in your scroll view. For an edge-to-edge look, let the feed run under a transparent status bar (`SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge)`); the dock keeps itself inside the top safe area.
 
 ```dart
 import 'package:story_dock/story_dock.dart';
@@ -97,20 +99,21 @@ await dock.dock();    // scroll just far enough to dock
 |---|---|
 | `ringColor` / `seenRingColor` | `colorScheme.primary` / `colorScheme.outlineVariant` |
 | `separatorColor` | `colorScheme.surface` (rings between faces in the stack) |
-| `glassTint` / `glassBorderColor` | surface at 55% / onSurface at 12% |
+| `glassTint` / `glassBorderColor` | surface at 55% / none (borderless) |
+| `actionGlass` | `true` (glass circles behind `leading` and `trailing` while the capsule shows) |
 | `blurSigma` | `20` (0 turns the backdrop blur off) |
 | `labelStyle` / `countStyle` | from `textTheme.labelSmall` / `labelMedium` |
 | `trayAvatarSize` / `trayItemExtent` | `68` / `80` |
 | `dockAvatarSize` | `28` (compact capsule and stack) |
-| `expandedDockAvatarSize` | `40` (enlarged capsule) |
-| `dockMargin` | `16` (gap between the enlarged capsule and the screen edges) |
+| `expandedDockAvatarSize` | `46` (enlarged capsule; the capsule scales by `46 / 28`) |
+| `dockMargin` | `16` (smallest gap between the enlarged capsule and the screen edges) |
 | `barHeight` | `52` (plus the top safe area) |
 | `barScrim` | `true` (soft fade behind the bar once content scrolls under it) |
 
 ## How it behaves
 
 - Scroll progress `p` runs from 0 (tray open) to 1 (scrolled past the tray). The top bar row scrolls away with the tray.
-- **Capsule:** at `p = 1` the compact capsule fades and drops into place, with `leading` and `trailing` beside it. It starts with the first story that was visible in the tray. It doesn't move on its own. The first touch (or Enter) enlarges it; after that, swipe sideways and tap a face to open that story. It stays enlarged while the feed scrolls (or until `collapseAfter`), Escape shrinks it, and scrolling back to the tray resets it. When it shrinks it keeps the faces you scrolled to.
+- **Capsule:** at `p = 1` the compact capsule drops 24 px into place and fades in over 200 ms, together with `leading` and `trailing`. It starts with the first story that was visible in the tray. It doesn't move on its own. A swipe scrolls it at once and grows it (200 ms, the top edge stays put); a tap or Enter grows it too. Once grown, tap a face to open that story. Flings settle on whole faces. It stays enlarged while the feed scrolls (or until `collapseAfter`), Escape shrinks it, and scrolling back to the tray resets it. When it shrinks it keeps the faces you scrolled to.
 - **Stack:** the faces leave their tray slots on a small arc, one after another, and land in the stack. While docked, the front face moves to the back every `rotateEvery`, only while the app is visible, the dock isn't pressed, and there are more stories than slots. Tapping it scrolls back to the top by default.
 
 ## Accessibility
