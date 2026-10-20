@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 
 /// How the docked stories are laid out.
 enum StoryDockVariant {
-  /// Small avatars side by side in a glass capsule. The faces slide along
-  /// the capsule like a carousel while docked.
+  /// The tray scrolls away and a small glass capsule of faces appears in the
+  /// top bar. Touching it enlarges it into a strip of every story that
+  /// scrolls sideways.
   capsule,
 
   /// Overlapping avatars followed by a `+N` count. The front face leaves
@@ -28,11 +29,15 @@ class StoryDockStyle {
     this.trayAvatarSize = 68,
     this.trayItemExtent = 80,
     this.dockAvatarSize = 28,
+    this.expandedDockAvatarSize = 40,
+    this.dockMargin = 16,
     this.barHeight = 52,
     this.barScrim = true,
   }) : assert(trayAvatarSize > 0),
        assert(trayItemExtent >= trayAvatarSize),
        assert(dockAvatarSize > 0),
+       assert(expandedDockAvatarSize >= dockAvatarSize),
+       assert(dockMargin >= 0),
        assert(barHeight >= dockAvatarSize + 8),
        assert(blurSigma >= 0);
 
@@ -67,8 +72,14 @@ class StoryDockStyle {
   /// Horizontal space given to each tray avatar.
   final double trayItemExtent;
 
-  /// Outer diameter of a docked avatar.
+  /// Outer diameter of a docked avatar (the capsule at rest, or the stack).
   final double dockAvatarSize;
+
+  /// Outer diameter of an avatar in the enlarged capsule.
+  final double expandedDockAvatarSize;
+
+  /// Space between the enlarged capsule and the screen edges.
+  final double dockMargin;
 
   /// Height of the top bar that holds the leading, title, trailing and dock.
   final double barHeight;
@@ -90,6 +101,8 @@ class StoryDockStyle {
     double? trayAvatarSize,
     double? trayItemExtent,
     double? dockAvatarSize,
+    double? expandedDockAvatarSize,
+    double? dockMargin,
     double? barHeight,
     bool? barScrim,
   }) {
@@ -105,6 +118,9 @@ class StoryDockStyle {
       trayAvatarSize: trayAvatarSize ?? this.trayAvatarSize,
       trayItemExtent: trayItemExtent ?? this.trayItemExtent,
       dockAvatarSize: dockAvatarSize ?? this.dockAvatarSize,
+      expandedDockAvatarSize:
+          expandedDockAvatarSize ?? this.expandedDockAvatarSize,
+      dockMargin: dockMargin ?? this.dockMargin,
       barHeight: barHeight ?? this.barHeight,
       barScrim: barScrim ?? this.barScrim,
     );
@@ -124,6 +140,8 @@ class StoryDockStyle {
       other.trayAvatarSize == trayAvatarSize &&
       other.trayItemExtent == trayItemExtent &&
       other.dockAvatarSize == dockAvatarSize &&
+      other.expandedDockAvatarSize == expandedDockAvatarSize &&
+      other.dockMargin == dockMargin &&
       other.barHeight == barHeight &&
       other.barScrim == barScrim;
 
@@ -140,6 +158,8 @@ class StoryDockStyle {
     trayAvatarSize,
     trayItemExtent,
     dockAvatarSize,
+    expandedDockAvatarSize,
+    dockMargin,
     barHeight,
     barScrim,
   );

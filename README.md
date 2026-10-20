@@ -3,14 +3,15 @@
 [![pub package](https://img.shields.io/pub/v/story_dock.svg)](https://pub.dev/packages/story_dock)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A stories tray for Flutter that collapses into a floating glass dock as the feed scrolls. The faces fly from the tray into a capsule pinned to the top bar, then keep rotating through more accounts while you read.
+A stories tray for Flutter that turns into a floating glass dock as the feed scrolls. Once the tray has scrolled away, a small capsule of faces appears in the top bar. Touch it and it grows into a strip of every story that you can swipe sideways.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/demo.gif" width="300" alt="Scrolling a feed: the stories tray flies into a capsule at the top, which turns through more faces; then the stack style with a +8 count.">
+  <img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/demo.gif" width="300" alt="Scrolling a feed: the tray scrolls away and a small capsule of faces appears between the add and theme buttons; a touch enlarges it into a sideways strip. Then the stack style, where faces fly into an overlapping stack with a +8 count.">
 </p>
 
-- **Follows the finger.** The collapse is driven by the scroll offset, so it is reversible. A scroll that stops halfway settles open or docked.
-- **Two styles.** `capsule` puts small faces side by side and turns them like a carousel. `stack` overlaps the faces with a `+N` count and shuffles the front one to the back.
+- **Two styles.**
+  - `capsule` (default): the tray scrolls away with the feed, then a compact glass capsule with four faces fades in between your leading and trailing buttons. It stays still until touched. A touch enlarges it to nearly the full bar width, the side buttons step aside, and the faces become a horizontal strip of every story.
+  - `stack`: the faces fly from the tray into an overlapping stack with a `+N` count as you scroll, and the front face shuffles to the back every couple of seconds.
 - **Never moves your feed.** The dock is drawn on top, so the list doesn't jump.
 - **Works with any vertical scroll view.** No scroll controller to wire up.
 - **Accessible.** RTL, keyboard, screen reader labels, reduced motion and text scaling.
@@ -45,7 +46,7 @@ StoryDock(
 )
 ```
 
-The stack style:
+The stack style (faces fly into an overlapping stack):
 
 ```dart
 StoryDock(variant: StoryDockVariant.stack, …)
@@ -60,10 +61,13 @@ final dock = StoryDockController();
 
 StoryDock(controller: dock, …);
 
-dock.progress;   // 0 open … 1 docked
+dock.progress;        // 0 open … 1 tray scrolled away
 dock.isDocked;
-await dock.expand(); // scroll back to the top
-await dock.dock();   // scroll just far enough to dock
+dock.isDockExpanded;  // capsule enlarged
+dock.expandDock();    // enlarge the capsule
+dock.collapseDock();  // shrink it again
+await dock.expand();  // scroll back to the top
+await dock.dock();    // scroll just far enough to dock
 ```
 
 ## Options
@@ -74,12 +78,13 @@ await dock.dock();   // scroll just far enough to dock
 | `builder` | required | `(context, tray)` returns your vertical scroll view with `tray` first. |
 | `variant` | `capsule` | `StoryDockVariant.capsule` or `StoryDockVariant.stack`. |
 | `onStoryTap` | `null` | Called with the index of a tapped tray avatar. |
-| `onDockTap` | scroll to top | Called when the dock is tapped. |
-| `leading`, `title`, `trailing` | `null` | Top bar slots. The title fades as the dock arrives. |
-| `hideActionsWhenDocked` | `true` | Fade `leading` and `trailing` once docked; the capsule widens into the space. |
-| `dockCount` | `4` | Faces shown in the dock at once. |
-| `rotateEvery` | `1.8 s` | Time between two rotations while docked. `Duration.zero` turns rotation off. |
-| `snap` | `true` | Settle a halfway scroll to open or docked. |
+| `onDockTap` | scroll to top | Stack only: called when the dock is tapped. The capsule enlarges instead. |
+| `leading`, `title`, `trailing` | `null` | Top bar slots. They scroll away with the tray; with the capsule, `leading` and `trailing` come back beside it. |
+| `hideActionsWhenDocked` | `true` | Capsule: fade `leading` and `trailing` while enlarged so it can use the full width. Stack: fade them once docked. |
+| `dockCount` | `4` | Faces in the compact capsule, or in the stack. |
+| `collapseAfter` | `null` | Capsule: shrink again this long after the last touch. `null` keeps it enlarged until the feed returns to the tray. |
+| `rotateEvery` | `1.8 s` | Stack only: time between two shuffles. `Duration.zero` turns it off. |
+| `snap` | `true` | Stack only: settle a halfway scroll to open or docked. The capsule never snaps. |
 | `controller` | `null` | A `StoryDockController`. |
 | `style` | `StoryDockStyle()` | Colours and sizes, see below. |
 | `dockSemanticLabel` | "Stories, N accounts, M new" | Screen reader label of the dock. |
@@ -96,23 +101,24 @@ await dock.dock();   // scroll just far enough to dock
 | `blurSigma` | `20` (0 turns the backdrop blur off) |
 | `labelStyle` / `countStyle` | from `textTheme.labelSmall` / `labelMedium` |
 | `trayAvatarSize` / `trayItemExtent` | `68` / `80` |
-| `dockAvatarSize` | `28` |
+| `dockAvatarSize` | `28` (compact capsule and stack) |
+| `expandedDockAvatarSize` | `40` (enlarged capsule) |
+| `dockMargin` | `16` (gap between the enlarged capsule and the screen edges) |
 | `barHeight` | `52` (plus the top safe area) |
 | `barScrim` | `true` (soft fade behind the bar once content scrolls under it) |
 
 ## How it behaves
 
-- Scroll progress `p` runs from 0 (tray open) to 1 (scrolled past the tray). The faces leave their tray slots on a small arc, one after another, and land in the dock. The title fades first; then the leading and trailing actions fade and the capsule widens a little.
-- The dock starts with the first story that is visible in the tray, so the faces you were looking at are the ones that fly up.
-- While docked, the dock moves one place every `rotateEvery`. It only rotates while fully docked, while the app is visible, while the dock isn't pressed, and when there are more stories than slots.
-- Tapping the dock scrolls back to the top by default.
+- Scroll progress `p` runs from 0 (tray open) to 1 (scrolled past the tray). The top bar row scrolls away with the tray.
+- **Capsule:** at `p = 1` the compact capsule fades and drops into place, with `leading` and `trailing` beside it. It starts with the first story that was visible in the tray. It doesn't move on its own. The first touch (or Enter) enlarges it; after that, swipe sideways and tap a face to open that story. It stays enlarged while the feed scrolls (or until `collapseAfter`), Escape shrinks it, and scrolling back to the tray resets it. When it shrinks it keeps the faces you scrolled to.
+- **Stack:** the faces leave their tray slots on a small arc, one after another, and land in the stack. While docked, the front face moves to the back every `rotateEvery`, only while the app is visible, the dock isn't pressed, and there are more stories than slots. Tapping it scrolls back to the top by default.
 
 ## Accessibility
 
 - Each tray avatar is a button: "Ava Reyes's story, new" (or "seen").
-- The dock is one button: "Stories, 12 accounts, 5 new". It can only be focused while it is shown.
-- Tab and Shift+Tab move between them; Enter or Space activates.
-- With reduced motion (`MediaQuery.disableAnimations`), faces fade instead of flying, the dock doesn't rotate, and snaps jump.
+- The dock is one button: "Stories, 12 accounts, 5 new". It can only be focused while it is shown. Once the capsule is enlarged, each face is its own button.
+- Tab and Shift+Tab move between them; Enter or Space activates; Escape shrinks the enlarged capsule.
+- With reduced motion (`MediaQuery.disableAnimations`), the capsule appears and grows without animating, the stack's faces fade instead of flying, nothing rotates, and snaps jump.
 - Labels follow the text scale up to 1.6x and the tray grows to fit.
 - The tray and dock mirror in right-to-left layouts.
 

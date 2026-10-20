@@ -1,6 +1,6 @@
 name: story_dock
-description: A stories tray that collapses into a floating glass dock as the feed scrolls. Capsule and stack styles, RTL, keyboard and screen reader ready.
-version: 1.0.0
+description: A stories tray that turns into a floating glass dock as the feed scrolls. Tap the capsule to swipe through stories, or use the stack style.
+version: 2.0.0
 homepage: https://github.com/YagnikBarasiya23/story_dock
 repository: https://github.com/YagnikBarasiya23/story_dock
 issue_tracker: https://github.com/YagnikBarasiya23/story_dock/issues
@@ -11,9 +11,9 @@ topics:
   - navigation
   - scroll
 screenshots:
-  - description: The stories tray flying into the capsule dock, then the stack dock.
+  - description: The tray scrolls away, the capsule appears and enlarges into a swipeable strip; then the stack dock.
     path: doc/demo.gif
-  - description: Open tray, capsule dock and stack dock.
+  - description: Open tray, compact capsule, enlarged capsule and stack dock.
     path: doc/screenshot.png
 
 environment:

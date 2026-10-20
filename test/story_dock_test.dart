@@ -14,7 +14,9 @@ const Duration rotate = Duration(milliseconds: 1000);
 Future<void> pumpDock(
   WidgetTester tester, {
   List<StoryDockItem>? stories,
-  StoryDockVariant variant = StoryDockVariant.capsule,
+  // Most behaviour tests below exercise the flying stack; the capsule has
+  // its own group.
+  StoryDockVariant variant = StoryDockVariant.stack,
   StoryDockController? controller,
   ValueChanged<int>? onStoryTap,
   VoidCallback? onDockTap,
@@ -32,6 +34,7 @@ Future<void> pumpDock(
   Brightness brightness = Brightness.light,
   Size size = const Size(400, 700),
   ScrollController? feedController,
+  Duration? collapseAfter,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -66,6 +69,7 @@ Future<void> pumpDock(
               hideActionsWhenDocked: hideActionsWhenDocked,
               style: style,
               dockSemanticLabel: dockSemanticLabel,
+              collapseAfter: collapseAfter,
               builder: (context, tray) => ListView(
                 key: feedKey,
                 controller: feedController,
@@ -283,7 +287,7 @@ void main() {
       await tester.pump();
       final end = tester.getCenter(slot(1));
       expect(end.dy, closeTo(26, 0.5)); // middle of the 52 px bar
-      expect(tester.getSize(slot(1)).width, closeTo(28 * 1.12, 0.5));
+      expect(tester.getSize(slot(1)).width, closeTo(28, 0.5));
       feed.jumpTo(0);
       await tester.pump();
       expect(slot(1), findsNothing);
@@ -541,7 +545,7 @@ void main() {
       final b = tester.getRect(slot(1));
       expect(b.left, lessThan(a.right)); // overlap
       final capsuleCount = find.text('+6');
-      await pumpDock(tester);
+      await pumpDock(tester, variant: StoryDockVariant.capsule);
       await tester.pump();
       expect(capsuleCount, findsNothing);
     });
@@ -564,7 +568,7 @@ void main() {
       await dockIt(tester);
       expect(opacityAbove(tester, find.text('lead')), 0);
       expect(opacityAbove(tester, find.text('trail')), 0);
-      expect(opacityAbove(tester, find.text('title')), 0);
+      expect(find.text('title'), findsNothing); // scrolled away
 
       await pumpDock(
         tester,
@@ -573,7 +577,6 @@ void main() {
       );
       await tester.pump();
       expect(opacityAbove(tester, find.text('lead')), 1);
-      // The capsule does not widen when the actions stay.
       expect(tester.getSize(slot(0)).width, closeTo(28, 0.5));
     });
 
@@ -597,13 +600,19 @@ void main() {
             .width,
         64,
       );
+      // Tray rings use ringColor (the stack recolours its own to separate).
+      final ring = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey<String>('story_dock_tray_0')),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
       await dockIt(tester);
       expect(tester.getSize(slot(0)).width, closeTo(22, 0.5));
       expect(tester.getCenter(slot(0)).dy, closeTo(22, 0.5));
       expect(find.byType(BackdropFilter), findsNothing);
-      final ring = tester.widget<DecoratedBox>(
-        find.descendant(of: slot(0), matching: find.byType(DecoratedBox)).first,
-      );
       expect(
         ((ring.decoration as BoxDecoration).border! as Border).top.color,
         Colors.red,
@@ -660,7 +669,7 @@ void main() {
       expect(tapped, 1);
     });
 
-    testWidgets('keyboard: the docked capsule opens the tray', (tester) async {
+    testWidgets('keyboard: the stack dock opens the tray', (tester) async {
       final controller = StoryDockController();
       await pumpDock(tester, controller: controller);
       await dockIt(tester);
@@ -704,6 +713,355 @@ void main() {
     });
   });
 
+  group('capsule', () {
+    const capsule = StoryDockVariant.capsule;
+    Finder strip(int i) => find.byKey(ValueKey<String>('story_dock_strip_$i'));
+    final stripList = find.byKey(const ValueKey<String>('story_dock_strip'));
+
+    Future<void> showCapsule(WidgetTester tester) async {
+      await dockIt(tester);
+      await settle(tester, const Duration(milliseconds: 300));
+    }
+
+    Future<void> touchDock(WidgetTester tester) async {
+      await tester.tap(dock);
+      await settle(tester, const Duration(milliseconds: 400));
+    }
+
+    testWidgets('the tray scrolls away; no faces fly', (tester) async {
+      final feed = ScrollController();
+      addTearDown(feed.dispose);
+      await pumpDock(tester, variant: capsule, feedController: feed);
+      final tray = tester.getTopLeft(
+        find.byKey(const ValueKey<String>('story_dock_tray_0')),
+      );
+      feed.jumpTo(40);
+      await tester.pump();
+      expect(slot(0), findsNothing);
+      expect(dock, findsNothing);
+      expect(
+        tester.getTopLeft(
+          find.byKey(const ValueKey<String>('story_dock_tray_0')),
+        ),
+        tray - const Offset(0, 40),
+      );
+    });
+
+    testWidgets('appears once the tray is gone and never snaps', (
+      tester,
+    ) async {
+      final controller = StoryDockController();
+      await pumpDock(tester, variant: capsule, controller: controller);
+      var gesture = await holdScroll(tester, 30);
+      await gesture.up();
+      await settle(tester);
+      final p = controller.progress;
+      expect(p, inExclusiveRange(0, 1), reason: 'feed rests where left');
+      expect(dock, findsNothing);
+      gesture = await holdScroll(tester, 200);
+      await gesture.up();
+      await settle(tester, const Duration(milliseconds: 300));
+      expect(controller.progress, 1);
+      expect(dock, findsOneWidget);
+      expect(tester.getCenter(dock).dy, closeTo(26, 0.5));
+      // Compact: the first four faces, 28 px each.
+      for (var i = 0; i < 4; i++) {
+        expect(strip(i), findsOneWidget);
+        expect(tester.getSize(strip(i)).width, closeTo(28, 0.1));
+      }
+      expect(tester.getSize(dock).width, closeTo(4 * 34 + 6, 0.5));
+    });
+
+    testWidgets('never rotates on its own', (tester) async {
+      await pumpDock(tester, variant: capsule);
+      await showCapsule(tester);
+      final before = tester.getTopLeft(strip(0));
+      await tester.pump(rotate * 5);
+      expect(tester.getTopLeft(strip(0)), before);
+      final controller = tester.state<ScrollableState>(
+        find.descendant(of: stripList, matching: find.byType(Scrollable)),
+      );
+      expect(controller.position.pixels, 0);
+    });
+
+    testWidgets('a touch enlarges it into a scrollable strip', (tester) async {
+      int? opened;
+      final controller = StoryDockController();
+      await pumpDock(
+        tester,
+        variant: capsule,
+        controller: controller,
+        stories: people(12),
+        leading: const Text('lead'),
+        trailing: const Text('trail'),
+        onStoryTap: (i) => opened = i,
+      );
+      await showCapsule(tester);
+      expect(opacityAbove(tester, find.text('lead')), 1);
+      final small = tester.getSize(dock);
+
+      await touchDock(tester);
+      expect(controller.isDockExpanded, isTrue);
+      expect(opened, isNull, reason: 'the first touch only enlarges');
+      final big = tester.getSize(dock);
+      expect(big.width, 400 - 2 * 16);
+      expect(big.height, greaterThan(small.height));
+      expect(tester.getSize(strip(0)).width, closeTo(40, 0.1));
+      expect(opacityAbove(tester, find.text('lead')), 0);
+      expect(opacityAbove(tester, find.text('trail')), 0);
+
+      // Swipe sideways through every story.
+      await tester.drag(dock, const Offset(-300, 0));
+      await settle(tester);
+      expect(strip(0).hitTestable(), findsNothing);
+      expect(strip(8), findsOneWidget);
+      await tester.tap(strip(8));
+      expect(opened, 8);
+    });
+
+    testWidgets('stays enlarged while the feed scrolls, shrinks at the tray', (
+      tester,
+    ) async {
+      final controller = StoryDockController();
+      await pumpDock(tester, variant: capsule, controller: controller);
+      await showCapsule(tester);
+      await touchDock(tester);
+      await tester.drag(find.byKey(feedKey), const Offset(0, -500));
+      await settle(tester);
+      expect(controller.isDockExpanded, isTrue);
+      expect(dock, findsOneWidget);
+      await tester.drag(find.byKey(feedKey), const Offset(0, 3000));
+      await settle(tester);
+      expect(controller.progress, 0);
+      expect(controller.isDockExpanded, isFalse);
+      expect(dock, findsNothing);
+      await showCapsule(tester);
+      expect(tester.getSize(dock).width, closeTo(4 * 34 + 6, 0.5));
+    });
+
+    testWidgets('shrinks around the faces the user scrolled to', (
+      tester,
+    ) async {
+      final controller = StoryDockController();
+      await pumpDock(
+        tester,
+        variant: capsule,
+        controller: controller,
+        stories: people(20),
+      );
+      await showCapsule(tester);
+      await touchDock(tester);
+      await tester.drag(dock, const Offset(-208, 0)); // 4 faces of 52 px
+      await settle(tester);
+      controller.collapseDock();
+      await settle(tester, const Duration(milliseconds: 400));
+      expect(controller.isDockExpanded, isFalse);
+      final left = tester.getRect(dock).left;
+      expect(tester.getRect(strip(4)).left, closeTo(left + 6, 1));
+    });
+
+    testWidgets('collapseAfter shrinks it after the last touch', (
+      tester,
+    ) async {
+      final controller = StoryDockController();
+      await pumpDock(
+        tester,
+        variant: capsule,
+        controller: controller,
+        collapseAfter: const Duration(seconds: 2),
+      );
+      await showCapsule(tester);
+      await touchDock(tester);
+      await tester.pump(const Duration(seconds: 1));
+      expect(controller.isDockExpanded, isTrue);
+      final gesture = await tester.startGesture(tester.getCenter(dock));
+      await tester.pump(const Duration(seconds: 3)); // held: no timeout
+      expect(controller.isDockExpanded, isTrue);
+      await gesture.up();
+      await tester.pump(const Duration(milliseconds: 1900));
+      expect(controller.isDockExpanded, isTrue);
+      await tester.pump(const Duration(milliseconds: 200));
+      await settle(tester, const Duration(milliseconds: 300));
+      expect(controller.isDockExpanded, isFalse);
+    });
+
+    testWidgets('controller expandDock and collapseDock', (tester) async {
+      final controller = StoryDockController();
+      var changes = 0;
+      controller.addListener(() => changes++);
+      await pumpDock(tester, variant: capsule, controller: controller);
+      controller.expandDock(); // not shown yet: ignored
+      await tester.pump();
+      expect(controller.isDockExpanded, isFalse);
+      await showCapsule(tester);
+      controller.expandDock();
+      await settle(tester, const Duration(milliseconds: 400));
+      expect(controller.isDockExpanded, isTrue);
+      controller.collapseDock();
+      await settle(tester, const Duration(milliseconds: 400));
+      expect(controller.isDockExpanded, isFalse);
+      expect(changes, greaterThan(2));
+    });
+
+    testWidgets(
+      'keyboard: Enter enlarges, Tab reaches a face, Escape shrinks',
+      (tester) async {
+        int? opened;
+        final controller = StoryDockController();
+        await pumpDock(
+          tester,
+          variant: capsule,
+          controller: controller,
+          onStoryTap: (i) => opened = i,
+        );
+        await showCapsule(tester);
+        bool inDock() {
+          final context = FocusManager.instance.primaryFocus?.context;
+          var found = false;
+          context?.visitAncestorElements((element) {
+            found =
+                element.widget.key == const ValueKey<String>('story_dock_dock');
+            return !found;
+          });
+          return found;
+        }
+
+        for (var i = 0; i < 30 && !inDock(); i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+        }
+        expect(inDock(), isTrue);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await settle(tester, const Duration(milliseconds: 400));
+        expect(controller.isDockExpanded, isTrue);
+        for (var i = 0; i < 30 && !inDock(); i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+        }
+        expect(inDock(), isTrue);
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pump();
+        expect(opened, isNotNull);
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await settle(tester, const Duration(milliseconds: 400));
+        expect(controller.isDockExpanded, isFalse);
+      },
+    );
+
+    testWidgets('semantics: one button, then a button per face', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      await pumpDock(tester, variant: capsule, stories: people(6, seenFrom: 4));
+      await showCapsule(tester);
+      expect(
+        find.bySemanticsLabel('Stories, 6 accounts, 4 new'),
+        findsOneWidget,
+      );
+      await touchDock(tester);
+      expect(find.bySemanticsLabel('Stories, 6 accounts, 4 new'), findsNothing);
+      expect(find.bySemanticsLabel("User 5's story, seen"), findsWidgets);
+      handle.dispose();
+    });
+
+    testWidgets('fewer stories than slots', (tester) async {
+      for (final n in <int>[1, 3]) {
+        await pumpDock(tester, variant: capsule, stories: people(n));
+        await showCapsule(tester);
+        expect(tester.getSize(dock).width, closeTo(n * 34 + 6, 0.5));
+        await touchDock(tester);
+        // Only as wide as its faces, not the whole bar.
+        expect(tester.getSize(dock).width, closeTo(n * 52 + 16, 0.5));
+        await tester.drag(find.byKey(feedKey), const Offset(0, 3000));
+        await settle(tester);
+      }
+      await pumpDock(tester, variant: capsule, stories: const []);
+      await dockIt(tester);
+      expect(dock, findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('RTL strip starts on the right', (tester) async {
+      await pumpDock(tester, variant: capsule, direction: TextDirection.rtl);
+      await showCapsule(tester);
+      expect(
+        tester.getCenter(strip(0)).dx,
+        greaterThan(tester.getCenter(strip(1)).dx),
+      );
+      await touchDock(tester);
+      expect(
+        tester.getCenter(strip(0)).dx,
+        greaterThan(tester.getCenter(strip(1)).dx),
+      );
+    });
+
+    testWidgets('style and option sizes', (tester) async {
+      await pumpDock(
+        tester,
+        variant: capsule,
+        leading: const Text('lead'),
+        hideActionsWhenDocked: false,
+        style: const StoryDockStyle(
+          dockAvatarSize: 24,
+          expandedDockAvatarSize: 36,
+          dockMargin: 10,
+        ),
+      );
+      await showCapsule(tester);
+      expect(tester.getSize(strip(0)).width, closeTo(24, 0.1));
+      await touchDock(tester);
+      expect(tester.getSize(strip(0)).width, closeTo(36, 0.1));
+      expect(tester.getSize(dock).width, 400 - 2 * (10 + 44));
+      expect(opacityAbove(tester, find.text('lead')), 1);
+    });
+
+    testWidgets('reduced motion: appears and enlarges without animating', (
+      tester,
+    ) async {
+      final controller = StoryDockController();
+      await pumpDock(
+        tester,
+        variant: capsule,
+        controller: controller,
+        reduceMotion: true,
+      );
+      await tester.drag(find.byKey(feedKey), const Offset(0, -400));
+      await tester.pump();
+      expect(opacityAbove(tester, strip(0)), 1);
+      await tester.tap(dock);
+      await tester.pump();
+      expect(tester.getSize(strip(0)).width, closeTo(40, 0.1));
+    });
+
+    testWidgets('switching variant at runtime', (tester) async {
+      await pumpDock(tester, variant: capsule);
+      await showCapsule(tester);
+      await touchDock(tester);
+      await pumpDock(tester);
+      await tester.pump();
+      expect(stripList, findsNothing);
+      expect(slot(0), findsOneWidget);
+      await pumpDock(tester, variant: capsule);
+      await tester.pump();
+      expect(tester.getSize(dock).width, closeTo(4 * 34 + 6, 0.5));
+    });
+
+    testWidgets('dispose while enlarging', (tester) async {
+      await pumpDock(
+        tester,
+        variant: capsule,
+        collapseAfter: const Duration(seconds: 1),
+      );
+      await showCapsule(tester);
+      await tester.tap(dock);
+      await tester.pump(const Duration(milliseconds: 100));
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 2));
+      expect(tester.binding.transientCallbackCount, 0);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('themes', () {
     for (final brightness in Brightness.values) {
       for (final variant in StoryDockVariant.values) {
@@ -737,13 +1095,23 @@ void main() {
             ),
           );
           feed.jumpTo(400);
-          await tester.pump();
+          await settle(tester, const Duration(milliseconds: 300));
           await expectLater(
             find.byType(StoryDock),
             matchesGoldenFile(
               'goldens/${variant.name}_docked_${brightness.name}.png',
             ),
           );
+          if (variant == StoryDockVariant.capsule) {
+            await tester.tap(dock);
+            await settle(tester, const Duration(milliseconds: 400));
+            await expectLater(
+              find.byType(StoryDock),
+              matchesGoldenFile(
+                'goldens/capsule_expanded_${brightness.name}.png',
+              ),
+            );
+          }
         });
       }
     }

@@ -7,12 +7,16 @@ part of 'story_dock.dart';
 class StoryDockController extends ChangeNotifier {
   _StoryDockState? _state;
   double _progress = 0;
+  bool _dockExpanded = false;
 
   /// 0 when the tray is fully open, 1 when the dock is fully settled.
   double get progress => _progress;
 
   /// Whether the dock is fully settled.
   bool get isDocked => _progress >= 1;
+
+  /// Whether the capsule dock is enlarged (or growing).
+  bool get isDockExpanded => _dockExpanded;
 
   /// Whether a [StoryDock] is using this controller.
   bool get isAttached => _state != null;
@@ -22,6 +26,13 @@ class StoryDockController extends ChangeNotifier {
 
   /// Scrolls the feed just far enough for the dock to settle.
   Future<void> dock() => _state?.dock() ?? Future<void>.value();
+
+  /// Enlarges the capsule dock into the scrollable strip. Does nothing until
+  /// the dock is showing, or for the stack style.
+  void expandDock() => _state?.expandDock();
+
+  /// Shrinks an enlarged capsule dock back to its small size.
+  void collapseDock() => _state?.collapseDock();
 
   void _attach(_StoryDockState state) {
     assert(
@@ -33,6 +44,12 @@ class StoryDockController extends ChangeNotifier {
 
   void _detach(_StoryDockState state) {
     if (identical(_state, state)) _state = null;
+  }
+
+  void _updateDockExpanded(bool value) {
+    if (value == _dockExpanded) return;
+    _dockExpanded = value;
+    notifyListeners();
   }
 
   void _updateProgress(double value) {
