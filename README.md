@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/YagnikBarasiya23/story_dock"><img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/banner.png" width="800" alt="Story Dock, a Wiiby component: a stories row that becomes a glass capsule in the top bar"></a>
+  <img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/banner.png" width="800" alt="Story Dock, a Wiiby component: a stories row that becomes a glass capsule in the top bar">
 </p>
 
 <p align="center">

@@ -1,3 +1,7 @@
+## 2.1.2
+
+- README: the banner is no longer wrapped in a link, so pub.dev's dark-theme hover filter cannot wash it out, and the banner has stronger contrast. No code changes.
+
 ## 2.1.1
 
 - README: Wiiby banner and HD (2x) demo, with absolute image links so the npm and pub.dev pages show them. No code changes.
