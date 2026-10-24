@@ -1,12 +1,17 @@
-# Story Dock
+<p align="center">
+  <a href="https://github.com/YagnikBarasiya23/story_dock"><img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/banner.png" width="800" alt="Story Dock, a Wiiby component: a stories row that becomes a glass capsule in the top bar"></a>
+</p>
 
-[![pub package](https://img.shields.io/pub/v/story_dock.svg)](https://pub.dev/packages/story_dock)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://pub.dev/packages/story_dock"><img src="https://img.shields.io/pub/v/story_dock.svg?color=1f2a3a" alt="pub package"></a>
+  <a href="https://pub.dev/packages/story_dock/score"><img src="https://img.shields.io/pub/points/story_dock?color=1f2a3a" alt="pub points"></a>
+  <a href="https://github.com/YagnikBarasiya23/story_dock/blob/main/LICENSE"><img src="https://img.shields.io/badge/licence-MIT-1f2a3a.svg" alt="MIT licence"></a>
+</p>
 
 A stories tray for Flutter that turns into a floating glass dock as the feed scrolls. Once the tray has scrolled away, a small capsule of faces appears in the top bar. Touch it and it grows into a strip of every story that you can swipe sideways.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/demo.gif" width="300" alt="Scrolling a feed: the tray scrolls away and a small capsule of faces appears between the add and theme buttons; a touch enlarges it into a sideways strip. Then the stack style, where faces fly into an overlapping stack with a +8 count.">
+  <img src="https://raw.githubusercontent.com/YagnikBarasiya23/story_dock/main/media/demo-hd.gif" width="800" alt="Scrolling a feed: the tray scrolls away and a small capsule of faces appears between the add and theme buttons; a touch enlarges it into a sideways strip. Then the stack style, where faces fly into an overlapping stack with a +8 count.">
 </p>
 
 - **Two styles.**
@@ -131,4 +136,4 @@ Flutter 3.32 or newer, on Android, iOS, web, macOS, Windows and Linux. Pure Dart
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](https://github.com/YagnikBarasiya23/story_dock/blob/main/LICENSE).

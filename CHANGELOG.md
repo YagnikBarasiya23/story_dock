@@ -1,3 +1,7 @@
+## 2.1.1
+
+- README: Wiiby banner and HD (2x) demo, with absolute image links so the npm and pub.dev pages show them. No code changes.
+
 ## 2.1.0
 
 Smoother capsule, checked frame by frame against the reference recording.

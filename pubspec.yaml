@@ -1,6 +1,6 @@
 name: story_dock
 description: A stories tray that turns into a floating glass dock as the feed scrolls. Tap the capsule to swipe through stories, or use the stack style.
-version: 2.1.0
+version: 2.1.1
 homepage: https://github.com/YagnikBarasiya23/story_dock
 repository: https://github.com/YagnikBarasiya23/story_dock
 issue_tracker: https://github.com/YagnikBarasiya23/story_dock/issues
